@@ -3,8 +3,9 @@ from ultralytics import YOLO
 import cv2
 import easyocr
 import os
+import shutil
 import time
-reader = easyocr.Reader(['ko', 'en'])  # 한국어와 영어 지원
+reader = easyocr.Reader(['ko'])  # 한국어와 영어 지원
 
 # YOLO 모델 로드
 model = YOLO('best_l.pt')
@@ -18,6 +19,7 @@ def process_ocr(ocr_queue: Queue):
         try:
             # 큐에서 파일 가져오기 (5초 대기, 없으면 Empty 예외 발생)
             file_path = ocr_queue.get(timeout=5)
+            # ocr_queue.task_done()
             print('')
             print('-' * 50)
             print(f"업스케일링 처리 중: {file_path}")
@@ -81,12 +83,57 @@ def process_ocr(ocr_queue: Queue):
                 print('OCR : 번호판 인식 어려움')
                 print('-' * 50)
                 print('')
-                continue
+                # if file_path and os.path.exists(file_path):
+                #     try:
+                #         os.remove(file_path)
+                #         print(f"파일 삭제 완료: {file_path}")
+                #     except Exception as delete_error:
+                #         print(f"파일 삭제 중 오류 발생: {delete_error}")
+                #         time.sleep(1)  # 잠시 대기 후 재시도 가능
+                # else:
+                #     if file_path:
+                #         print(f"파일 경로가 존재하지 않거나 None: {file_path}")
+                #     continue
 
             for result in results:
                 text = result[1]  # 추출된 텍스트
                 print(f"Detected text: {text}")
             
+            ####
+            # 번호판 인식 텍스트 조인
+            join_text = ''.join([result[1] for result in results])
+            print(f"조인된 텍스트: {join_text}")
+            if(join_text == ''):
+                continue
+            
+            # 파일 경로 설정
+            file_path_ = f'app/file'
+            new_file_name = file_name.replace('rider_', '')
+
+            rider_folder_path = os.path.join(file_path_, f'{file_name}')
+            screenshot_folder_path = os.path.join('app', 'file', f'screenshot_{new_file_name}')
+
+            # 타임스탬프 추가
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+            # 새로운 파일명 설정 (rider와 screenshot 모두 타임스탬프 포함)
+            new_rider_name = f"rider_{join_text}_{timestamp}.png"
+            new_screenshot_name = f"screenshot_{join_text}_{timestamp}.png"
+
+            new_rider_path = os.path.join('app', 'search', new_rider_name)
+            new_screenshot_path = os.path.join('app', 'search', new_screenshot_name)
+            
+            # 디렉토리가 존재하지 않으면 생성
+            os.makedirs(os.path.dirname(new_rider_path), exist_ok=True)
+            os.makedirs(os.path.dirname(new_screenshot_path), exist_ok=True)
+
+            try:
+                # 파일 이동
+                shutil.move(rider_folder_path, new_rider_path)  # rider 파일 이동
+                shutil.move(screenshot_folder_path, new_screenshot_path)  # screenshot 파일 이동
+                print(f"{new_rider_name}, {new_screenshot_name} 파일이 'find' 폴더로 이동되었습니다.")
+            except Exception as e:
+                print(f"파일 이동 중 오류 발생: {e}")
 
             print('')
             print('-' * 50)
@@ -112,9 +159,22 @@ def process_ocr(ocr_queue: Queue):
             print(f"OCR 처리 중 오류 발생: {e}")
             print('-' * 50)
             print('')
-            print(e.with_traceback)
+            print(e.format_exc())
+
+            # if file_path and os.path.exists(file_path):
+            #     try:
+            #         os.remove(file_path)
+            #         print(f"파일 삭제 완료: {file_path}")
+            #     except Exception as delete_error:
+            #         print(f"파일 삭제 중 오류 발생: {delete_error}")
+            #         time.sleep(1)  # 잠시 대기 후 재시도 가능
+            # else:
+            #     if file_path:
+            #         print(f"파일 경로가 존재하지 않거나 None: {file_path}")
 
         finally:
+            if file_path:
+                ocr_queue.task_done()
             # 파일 처리 후 삭제 (성공, 오류 상관 없이)
             if file_path and os.path.exists(file_path):
                 try:
@@ -128,5 +188,4 @@ def process_ocr(ocr_queue: Queue):
                     print(f"파일 경로가 존재하지 않거나 None: {file_path}")
 
             # task_done은 항상 마지막에 호출
-            if file_path:
-                ocr_queue.task_done()
+            
